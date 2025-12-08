@@ -1,0 +1,94 @@
+# The Postgres Post Provisioning workflow can only be ran after a Postgres server has already been successfully created with Terraform.
+# In general, the workflow will only need to be ran once after the initial server provisioning.
+# Reference: https://github.com/GM-InnerSource/terraform-examples/blob/main/workflow-templates/postgres-post-provisioning-only/README.md
+
+name: Postgres Post Provisioning - dev
+
+run-name: "${{ inputs.postgres_server_name }} - Postgres Post Provisioning"
+
+on:
+  workflow_dispatch:
+    inputs:
+      azure_subscription:
+        type: string
+        description: The name of the Azure Subscription/HCP Terraform project name (GitHub environment name).
+        required: true
+        default: 'a14365-acms-test'
+      asms:
+        type: string
+        description: ASMS number.
+        required: true
+        default: '14365'
+      environment:
+        type: string
+        description: Environment associated to the resource group/postgres server ex. d1, t1, p1.
+        required: true
+        default: 'd1'
+      location:
+        type: string
+        description: Location associated to the resource group/postgres server.
+        required: true
+        default: 'koreacentral'
+      resource_group_name:
+        type: string
+        description: Resource group name where the postgres server is located.
+        required: true
+        default: 'a14365-d1-mkrct1-rg-dev'
+      postgres_server_name:
+        type: string
+        description: The postgres server resource name.
+        required: true
+        default: 'a14365-d1-mkrct1-psql-dev'
+      database_names:
+        type: string
+        description: The name of the Postgres databases to create. database_names must be of the form ["<placeholder>"]. EX. ["appdb01"]
+        required: true
+        default: '["acmsd1"]'
+      schema_name:
+        description: The name of the schema to create within each database.
+        type: string
+        required: true
+        default: 'acms'
+      github_runner:
+        type: choice
+        description: The GitHub runner to use.
+        required: true
+        options:
+        - "GM-DBT-DEV-Ubuntu-Latest-64"
+
+jobs:
+  postgres-post-provisioning:
+    runs-on: ${{ inputs.github_runner }}
+    environment: ${{ inputs.azure_subscription }}
+    permissions:
+        id-token: write
+        contents: read
+    steps:
+        - name: Retrieve Dynamic Secret
+          id: retrieve-secrets
+          uses: GM-InnerSource/ccoe-205219-az-dynamic-vault-creds-action@v1.0.0
+          with:
+            vault_auth_path: ${{ vars.VAULT_JWT_GHA_BACKEND_PATH }}
+            vault_role: ${{ vars.APP_DEPLOYERS_ROLE }}
+            vault_address: ${{ vars.VAULT_ADDR }}
+            vault_namespace: ${{ vars.VAULT_NAMESPACE }}
+
+        - name: Azure login
+          uses: azure/login@v2
+          with:
+            creds: '{"clientSecret": "${{ env.client_secret }}","subscriptionId": "${{ vars.SUBSCRIPTION_ID }}","tenantId": "${{ vars.TENANT_ID }}","clientId": "${{ env.client_id }}"}'
+
+        - name: Post-Provisioning for Postgres
+          uses: GM-InnerSource/terraform-azurerm-postgresql-flexible-server/.github/actions/postgres@main
+          with:
+            CLIENT_ID: ${{ env.client_id }}
+            CLIENT_SECRET: ${{ env.client_secret }}
+            TENANT_ID: ${{ vars.TENANT_ID }}
+            SUBSCRIPTION_ID: ${{ vars.SUBSCRIPTION_ID }}
+            ASMS: ${{ inputs.asms }}
+            ENVIRONMENT: ${{ inputs.environment }}
+            LOCATION: ${{ inputs.location }}
+            RESOURCE_GROUP_NAME: ${{ inputs.resource_group_name }}
+            POSTGRES_SERVER_NAME: ${{ inputs.postgres_server_name }}
+            POSTGRES_DATABASE_NAMES: ${{ inputs.database_names }}
+            SCHEMA_NAME: ${{ inputs.schema_name }}
